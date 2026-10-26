@@ -123,6 +123,7 @@ python -m poc.embedding.full_lmeb prepare \
 ```
 
 Jina/BGE/Gemmaをそれぞれ別プロセスで実行する。モデルrootのbasenameは固定SHAと一致させ、結果とチェックポイントは隔離ディレクトリに保存する。
+各推論呼出しは最大1,024件の外側チャンクに分け、チャンクごとにMPS同期して進捗を記録する。同じMacで報告された大規模コーパスのMPS待ちを抑える実行上の調整で、内側batch 8、入力・モデル・ランキング条件は維持する。結果にはこの実行条件とコードrevisionを記録する。
 
 ```sh
 python -m poc.embedding.full_lmeb run --model jina \

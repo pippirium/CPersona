@@ -110,6 +110,32 @@ def test_full_lmeb_canonicalizes_only_identical_duplicate_records():
                           candidate_positions=[3, 0, 2], limit=2) == ["c", "d"]
 
 
+def test_full_lmeb_encode_chunks_synchronize_and_preserve_order():
+    import numpy as np
+    from poc.embedding.full_lmeb import encode_in_chunks
+
+    batches, syncs, progress = [], [], []
+
+    def encode(chunk):
+        batches.append(list(chunk))
+        return np.asarray([[value, value + 1] for value in chunk])
+
+    vectors = encode_in_chunks(list(range(9)), 4, encode,
+                               lambda: syncs.append(True),
+                               lambda completed, total: progress.append((completed, total)))
+    assert batches == [[0, 1, 2, 3], [4, 5, 6, 7], [8]]
+    assert len(syncs) == 3
+    assert progress == [(4, 9), (8, 9), (9, 9)]
+    assert vectors.tolist() == [[value, value + 1] for value in range(9)]
+    from poc.embedding.full_lmeb import ENCODE_CHUNK_SIZE, _condition
+    policy = _condition("sha")
+    assert ENCODE_CHUNK_SIZE == policy["encode_outer_chunk_size"] == 1024
+    assert policy["mps_synchronize_after_each_encode_chunk"] is True
+    assert policy["mps_empty_cache_after_large_encode_chunks"] is True
+    with pytest.raises(ValueError, match="empty"):
+        encode_in_chunks([], 4, encode, lambda: None)
+
+
 def test_full_lmeb_task_pairing_uses_query_means_and_seeded_ci():
     from poc.embedding.full_lmeb import compare_task_rows
 
@@ -171,7 +197,10 @@ def test_full_lmeb_report_contains_only_aggregated_evidence():
         "orphan_qrel_query_count": 0,
     }
     condition = {"task_instruction_sha256": "sha", "device": "mps", "dtype": "bf16",
-                 "max_seq_length": 512, "corpus_batch": 8, "quality_query_batch": 8}
+                 "max_seq_length": 512, "corpus_batch": 8, "quality_query_batch": 8,
+                 "encode_outer_chunk_size": 1024,
+                 "mps_synchronize_after_each_encode_chunk": True,
+                 "mps_empty_cache_after_large_encode_chunks": True}
     results = {key: {"condition": condition, "source_commit": "commit",
                      "revision": "revision", "load_s": 1.0,
                      "resources": {"peak_rss_bytes": 1024**3,

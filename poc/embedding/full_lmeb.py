@@ -24,6 +24,7 @@ from poc.embedding.compare import fingerprint, validate_dataset
 
 REVISION = "f9d4294be4a24b8c16d6bfb59d56a6fec4bd95c0"
 INSTRUCTIONS_SHA256 = "f3f83069f3a3818a89c28de320051521bc37c6b8314d110b8911356eb9adfaa8"
+ENCODE_CHUNK_SIZE = 1024
 INSTRUCTION_DATASET_KEYS = {
     "Covid-QA": ("CovidQA", "Covid-QA"),
     "ESG-Reports": ("ESGReports", "ESG-Reports"),
@@ -82,6 +83,25 @@ def query_input(query, model_key, instructions):
         return query["text"]
     instruction = instruction_for_task(query["task"], instructions)
     return f"Instruct: {instruction}\nQuery: {query['text']}"
+
+
+def encode_in_chunks(texts, chunk_size, encode_chunk, synchronize, after_chunk=None):
+    """Encode bounded outer chunks and drain the device queue between them."""
+    import numpy as np
+
+    if not texts:
+        raise ValueError("cannot encode an empty input sequence")
+    chunks = []
+    total = len(texts)
+    for start in range(0, total, chunk_size):
+        part = texts[start:start + chunk_size]
+        values = encode_chunk(part)
+        synchronize()
+        chunks.append(np.asarray(values, dtype=np.float32))
+        del values
+        if after_chunk is not None:
+            after_chunk(min(start + len(part), total), total)
+    return np.concatenate(chunks, axis=0)
 
 
 def prepare(root, out, task_instructions_path):
@@ -307,6 +327,9 @@ def _condition(instruction_sha256):
     return {
         "device": "mps", "dtype": "bf16", "max_seq_length": 512,
         "corpus_batch": 8, "quality_query_batch": 8,
+        "encode_outer_chunk_size": ENCODE_CHUNK_SIZE,
+        "mps_synchronize_after_each_encode_chunk": True,
+        "mps_empty_cache_after_large_encode_chunks": True,
         "latency_probe_query_batch": 1, "latency_probe_per_task": 20,
         "latency_probe_seed": 1729, "warmup_calls_per_role_per_group": 2,
         "normalized": True, "ranking": "cosine; stable corpus-order ties",
@@ -426,10 +449,21 @@ def run(args):
         condition["torch_threads"] = torch.get_num_threads()
         common = {"normalize_embeddings": True, "convert_to_numpy": True,
                   "show_progress_bar": False}
+        encode_context = {"group": 0, "corpus": "", "stage": "warmup"}
 
         def encode(texts, kind, batch):
-            return np.asarray(model.encode(texts, batch_size=batch, **role(kind), **common),
-                              dtype=np.float32)
+            def encode_chunk(part):
+                return model.encode(part, batch_size=batch, **role(kind), **common)
+
+            def after_chunk(completed, total):
+                if total > ENCODE_CHUNK_SIZE:
+                    print(json.dumps({"model": args.model, **encode_context,
+                                      "progress": completed, "total": total}), flush=True)
+                    if hasattr(torch.mps, "empty_cache"):
+                        torch.mps.empty_cache()
+
+            return encode_in_chunks(texts, ENCODE_CHUNK_SIZE, encode_chunk,
+                                    torch.mps.synchronize, after_chunk)
 
         def truncation(texts, kind):
             prompt_name = role(kind).get("prompt_name")
@@ -457,6 +491,7 @@ def run(args):
         expected_tasks = 0
         recorded_load_s = load_s
         for group_number, group in enumerate(manifest["groups"], 1):
+            encode_context.update(group=group_number, corpus=group["corpus"])
             data_path = Path(args.input_dir) / group["input"]
             data = json.loads(data_path.read_text())
             validate_dataset(data, allow_unretrievable_qrels=True)
@@ -499,15 +534,15 @@ def run(args):
                 encode(query_texts[:1], "query", 1)
             torch.mps.synchronize()
             started = time.perf_counter()
+            encode_context["stage"] = "corpus_encode"
             docs = encode(texts, "document", 8)
-            torch.mps.synchronize()
             corpus_encode_s = time.perf_counter() - started
             if (not np.isfinite(docs).all()
                     or not np.allclose(np.linalg.norm(docs, axis=1), 1, atol=.01)):
                 raise ValueError("invalid document vectors")
             started = time.perf_counter()
+            encode_context["stage"] = "quality_query_encode"
             query_vectors = encode(query_texts, "query", 8)
-            torch.mps.synchronize()
             query_encode_s = time.perf_counter() - started
             if not np.isfinite(query_vectors).all():
                 raise ValueError("nonfinite query vectors")
@@ -538,6 +573,7 @@ def run(args):
                 task_queries[query["task"]].append(query)
             latency_samples = []
             latency_by_task = {}
+            encode_context["stage"] = "latency_probe"
             for task, queries in sorted(task_queries.items()):
                 seed_suffix = int(hashlib.sha256(task.encode()).hexdigest()[:8], 16)
                 rng = random.Random(1729 ^ seed_suffix)
@@ -548,7 +584,6 @@ def run(args):
                     started = time.perf_counter()
                     vector = encode([query_input(query, args.model, instructions)],
                                     "query", 1)[0]
-                    torch.mps.synchronize()
                     embedding_ms = (time.perf_counter() - started) * 1000
                     candidates = query.get("candidates")
                     positions = (None if candidates is None else
@@ -894,7 +929,7 @@ def render_full_report(results, comparison):
         "- Model revisions: " + "; ".join(
             f"{names[key]} `{results[key]['revision']}`" for key in ("jina", "bge", "gemma")) + ".",
         f"- Hardware: {reference['platform']['cpu']}, {reference['platform']['ram_bytes'] / 1024**3:.0f} GiB RAM; {reference['platform']['system']} {reference['platform']['release']}.",
-        f"- Shared condition: {reference['condition']['device']}/{reference['condition']['dtype']}, max {reference['condition']['max_seq_length']} tokens, corpus/query quality batch {reference['condition']['corpus_batch']}/{reference['condition']['quality_query_batch']}.",
+        f"- Shared condition: {reference['condition']['device']}/{reference['condition']['dtype']}, max {reference['condition']['max_seq_length']} tokens, corpus/query quality batch {reference['condition']['corpus_batch']}/{reference['condition']['quality_query_batch']} inside synchronized outer chunks of up to {reference['condition']['encode_outer_chunk_size']} records.",
         "- Task instructions: Jina follows the published with-instruction setting; BGE-M3 and Gemma follow their published no-instruction setting. All models use their declared document/query prompts.",
         "",
         "## Mean (Dataset)",

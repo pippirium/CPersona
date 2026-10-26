@@ -75,3 +75,36 @@ CPersona本体のimportも確認した。本番MCP設定や記憶DBの変更は�
 originは個人fork、upstreamは原本。ローカルでupstreamのpush URLを無効化済み。
 仮想環境・結果は`.git/info/exclude`で除外する。
 PR作成や自動push処理は含まない。
+
+## CP-02: 3モデルの固定条件比較
+
+Jina/BGE-M3/EmbeddingGemma 2の独立dense比較は `compare.py` と
+[COMPARISON-PROTOCOL.md](COMPARISON-PROTOCOL.md) を使用する。
+このCLIはMCPサーバーへ登録せず、本番記憶DB・embedding backend設定を変更しない。
+既存の10問は日本語smokeとして残し、公開LMEB_SciFactの固定revisionの全test
+（1,748 passages / 188 queries）を別集計する。全LMEBや一般日本語品質の代用にはしない。
+
+比較用の隔離環境には `requirements-compare.txt` をインストールする
+（既存lockの依存＋pyarrow 26.0.0）。モデル取得は推論と分離し、各固定SHAの
+ローカルsnapshotを `--model-root` で明示する。Jinaは発行元の固定custom codeを使う。
+
+```sh
+python -m poc.embedding.compare prepare \
+  --lmeb-files <downloaded-parquet-path-map.json> \
+  --japanese poc/embedding/sample.json --out <isolated-input-dir>
+python -m poc.embedding.compare run --model jina \
+  --model-root <snapshot-at-preregistered-sha> \
+  --dataset <isolated-input-dir>/japanese_smoke.json \
+  --dataset <isolated-input-dir>/lmeb_scifact.json --out <result-dir>/jina.json
+# 同じ条件で --model bge / gemma を別プロセスで実行
+python -m poc.embedding.compare compare \
+  --result <result-dir>/jina.json --result <result-dir>/bge.json \
+  --result <result-dir>/gemma.json --out <result-dir>/paired.json
+```
+
+parquet path-mapは `mteb/LMEB_SciFact` @
+`432cf48c879c2de792720d5c0af6900312ebe7b6` の
+`LMEB_SciFact-{corpus,queries,qrels}/test-00000-of-00001.parquet` をキー、
+ダウンロード先の絶対パスを値とするJSON。path-mapと原文データはコミットしない。
+結果はID・順位・指標・条件・hash・資源量のみで、query/corpus本文やパスを含めない。
+通常の `evaluate.py` / run.sh の動作は変更しない。

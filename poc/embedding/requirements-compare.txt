@@ -1,0 +1,2 @@
+-r requirements.lock
+pyarrow==26.0.0

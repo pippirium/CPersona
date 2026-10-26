@@ -1,0 +1,24 @@
+{
+  "lmeb_scifact": {
+    "source": {
+      "id": "mteb/LMEB_SciFact",
+      "revision": "432cf48c879c2de792720d5c0af6900312ebe7b6",
+      "split": "test",
+      "scope": "full published task; not full LMEB aggregate"
+    },
+    "records": 1748,
+    "queries": 188,
+    "dataset_sha256": "4c4ec33addb570d2daef09b88295de4ae703be91fbf0aa530351a5ba72186af9"
+  },
+  "japanese_smoke": {
+    "source": {
+      "id": "CPersona/poc/embedding/sample.json",
+      "revision": "7821840f114866673022edfc5fe4b21a9b08a5e5",
+      "source_sha256": "af69cba40990e58311145223aaa128d7a2b2ee8179f145281f8a035347a9e38d",
+      "scope": "synthetic smoke only"
+    },
+    "records": 10,
+    "queries": 10,
+    "dataset_sha256": "e3824ad72ac50a99a6b06211c2f618b18a2bc517e70bd9fd605db7cf65f95a4f"
+  }
+}

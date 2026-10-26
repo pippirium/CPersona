@@ -1,6 +1,6 @@
 # CP-02 — Preregistered dense comparison protocol
 
-Status: prepared before inference; no comparison scores measured by this document. This protocol was fixed in Bridge before inference. The user subsequently authorized work and PR publication in the experimental fork; the implementation/report belong here. It does not change the MCP runtime or provider contracts.
+Status: Phase 1 (Japanese smoke plus SciFact) is measured and reported separately. The full-LMEB Phase 2 conditions below were fixed before its model inference. The user authorized evaluation work and PR publication in this experimental fork. Neither phase changes the MCP runtime or provider contracts.
 
 ## Fixed inputs
 
@@ -25,6 +25,26 @@ The LMEB [paper](https://arxiv.org/abs/2603.12572) and [processed dataset](https
 - Sample process RSS and MPS driver allocation during inference; record sampling interval and limits. Model download time is excluded. Record package versions, exact model/data revisions, input fingerprints, native dimensions and truncation counts.
 - Paired comparison uses identical query IDs, win/tie/loss and seeded bootstrap 95% intervals (seed 1729; 2,000 resamples) for NDCG@10/Recall@10/MRR@10. Report Japanese smoke and LMEB task separately. Do not combine them into a general model-selection verdict.
 
+## Phase 2 — full LMEB (fixed before full-model inference)
+
+### Inputs and source audit
+
+- Source is `KaLM-Embedding/LMEB` at immutable revision `f9d4294be4a24b8c16d6bfb59d56a6fec4bd95c0`, downloaded before inference. It contains 22 dataset groups, 193 query tasks and 103 corpus groups. The normalized inputs contain 2,032,230 per-corpus unique records (summed across groups) and 159,011 queries with positive qrels; no source query is excluded for missing positive qrels.
+- Corpus rows use `title + newline + text` when title is present, otherwise `text`; IDs are converted to strings and sorted lexically. Repeated IDs are accepted only when the retained ID and normalized text are identical. QASPER has 44,792 such exact duplicate rows (65,300 source rows, 20,508 unique); any conflicting row for one ID aborts preparation. Four repeated positive qrel pairs have the same grade and collapse to one query/document relationship. Conflicting grades abort preparation.
+- 28,587 queries have published candidate scenes; those queries rank only the available documents in their published scene. Other queries rank the full corpus group. Candidate IDs absent from the source corpus are omitted from the available pool and counted (4,588 corpus-group-scoped IDs); no query has an empty available pool. Scene assignment must match exactly one scene ID or `scene_id + "_"` prefix; unmatched or ambiguous IDs abort preparation.
+- All positive qrels stay in Recall and NDCG denominators, including 109 qrel links to 96 corpus-group-scoped IDs absent from the corresponding corpus and 72 links outside their published candidate scene. These limits are counted and never silently removed to improve scores. There are no orphan qrel query IDs. The two unavailable-qrel categories can overlap and are not added together.
+
+### Full-run conditions
+
+- Run all three fixed model snapshots listed above in separate processes on the same Apple M1 Pro / 32 GB Mac using MPS and bf16. Stay offline during inference. Each run uses max sequence length 512, corpus batch 8 and quality-query batch 8. Gemma uses text-only Document/SearchQuery prompts; Jina uses pinned retrieval custom code with document/query prompts; BGE-M3 uses dense encoding without a query instruction. Store native output dimensions.
+- Follow the LMEB model-specific instruction settings in [the paper's Table 13](https://arxiv.org/abs/2603.12572): Jina gets the pinned task instruction while BGE-M3 and EmbeddingGemma do not. Use `Instruct: {task instruction}\nQuery: {query}` before Jina's retrieval query prompt. The instruction map is `task_instructions.json` at the same dataset revision, SHA-256 `f3f83069f3a3818a89c28de320051521bc37c6b8314d110b8911356eb9adfaa8`; resolve and validate an instruction for every one of the 193 source tasks before inference.
+- Build fresh normalized vectors for each corpus group and model. Use cosine scores and deterministic top-10 ranking; ties follow ascending normalized corpus ID. Never share vectors between models. Warm each role twice for each corpus group before timed stages. Report corpus and batched query embedding time separately; batched quality time is not presented as single-query latency.
+- Measure single-query latency separately after quality scoring. For each of the 193 source tasks, select up to 20 query IDs deterministically (seed 1729 plus a stable task hash), then time batch-one embedding and CPU ranking with device synchronization. Report sample count and nearest-rank p50/p95. This is a stratified task sample, not a latency claim for all queries.
+- Compute Recall@1/5/10, Success@10, MRR@10 and graded NDCG@10 (`2^grade-1`) for every query. Preserve query IDs, task IDs, top-10 IDs, metrics and unavailable-qrel counts in compressed results; never commit public query/corpus text or local paths. Report tokenizer-specific document/query truncation counts at the shared 512-token limit.
+- A task score is the mean of its query scores. A dataset score averages its source task scores equally; the 22-dataset macro averages dataset scores equally, matching LMEB's Mean (Dataset). Also report the paper's Mean (Type), the equal-weight mean of the four memory-type dataset averages. Per-task paired 95% intervals resample query IDs (2,000 resamples, seed 1729); per-dataset intervals resample tasks; the overall interval resamples the 22 datasets equally. Report wins/ties/losses at query and task levels. Keep this aggregate distinct from the Phase 1 SciFact regime and the downstream Track B answer benchmark.
+- Sample process RSS and MPS driver allocation every 100 ms. Save immutable model/data revisions, normalized input fingerprints, harness hash, Git source commit, package versions, hardware, truncation counts and stage timings. Resume only checkpoints matching all of those identities and controls.
+- This measures standalone dense retrieval only. It does not measure CPersona hybrid retrieval, answer generation, memory quality, or a general Japanese benchmark. Sampling can miss brief resource peaks; latency and resource results apply only to this Mac/MPS/bf16 condition.
+
 ## Delivery boundary
 
-Deliver this standalone evaluator, testable metrics, measurements and report in an independent PR to pippirium/CPersona master. Bridge #19 tracks the cross-repository completion; never open this PR against Cloto-dev/CPersona. Existing published PoC/LMEB scores are reference history and will not be copied into a new run as if remeasured.
+Deliver the standalone evaluator, testable metrics, measured reports and compressed per-query evidence in an independent PR to the user's `pippirium/CPersona` fork's `master`. Bridge #19 tracks cross-repository completion. Never push or open a PR against `Cloto-dev/CPersona`. Existing published PoC/LMEB scores are reference history and are not copied into a new run as if remeasured.

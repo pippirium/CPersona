@@ -50,7 +50,7 @@ def fingerprint(data):
                                      separators=(",", ":")).encode()).hexdigest()
 
 
-def validate_dataset(data):
+def validate_dataset(data, *, allow_unretrievable_qrels=False):
     records, queries = data["records"], data["queries"]
     ids = [r["id"] for r in records]
     qids = [q["id"] for q in queries]
@@ -58,12 +58,20 @@ def validate_dataset(data):
         raise ValueError("nonempty unique record/query identifiers required")
     if any(not isinstance(r["text"], str) or not r["text"].strip() for r in records + queries):
         raise ValueError("nonempty text required")
+    id_set = set(ids)
     for q in queries:
         rel = q["relevant"]
-        if not rel or not set(rel).issubset(ids):
+        if not rel or (not allow_unretrievable_qrels and not set(rel).issubset(id_set)):
             raise ValueError("every query requires in-corpus qrels")
         if any(not isinstance(g, int) or isinstance(g, bool) or g <= 0 for g in rel.values()):
             raise ValueError("positive integer relevance grades required")
+        if "candidates" in q:
+            candidates = q["candidates"]
+            if (not candidates and not allow_unretrievable_qrels) \
+                    or len(candidates) != len(set(candidates)) \
+                    or not set(candidates).issubset(id_set) \
+                    or (not allow_unretrievable_qrels and not set(rel).issubset(candidates)):
+                raise ValueError("invalid scene candidate evidence")
     return data
 
 

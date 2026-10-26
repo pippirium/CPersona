@@ -108,3 +108,34 @@ parquet path-mapは `mteb/LMEB_SciFact` @
 ダウンロード先の絶対パスを値とするJSON。path-mapと原文データはコミットしない。
 結果はID・順位・指標・条件・hash・資源量のみで、query/corpus本文やパスを含めない。
 通常の `evaluate.py` / run.sh の動作は変更しない。
+
+### 全LMEB 22データセットの再現
+
+`full_lmeb.py` は上記 SciFact/japanese smoke の別条件で、公開 `KaLM-Embedding/LMEB` の固定snapshot全体を評価する。実行前に評価用隔離環境へ `requirements-compare.txt` を入れ、Hugging Faceから次のrevisionを取得する。入力JSONは専用scratchに作り、本文はGitへ追加しない。
+
+```sh
+hf download KaLM-Embedding/LMEB task_instructions.json --repo-type dataset \
+  --revision f9d4294be4a24b8c16d6bfb59d56a6fec4bd95c0
+python -m poc.embedding.full_lmeb prepare \
+  --snapshot <KaLM-Embedding-LMEB-snapshot>/f9d4294be4a24b8c16d6bfb59d56a6fec4bd95c0 \
+  --task-instructions <pinned-task_instructions.json> \
+  --out <isolated-input-dir>
+```
+
+Jina/BGE/Gemmaをそれぞれ別プロセスで実行する。モデルrootのbasenameは固定SHAと一致させ、結果とチェックポイントは隔離ディレクトリに保存する。
+
+```sh
+python -m poc.embedding.full_lmeb run --model jina \
+  --model-root <snapshot>/8a7f00aac812071b69403df470f1038ec85f8925 \
+  --input-dir <isolated-input-dir> --task-instructions <pinned-task_instructions.json> \
+  --checkpoint-dir <checkpoint-dir> \
+  --out <result-dir>/jina.json.gz
+# bgeとgemmaも各固定SHAのsnapshotを指定して同じ条件で実行
+python -m poc.embedding.full_lmeb compare \
+  --result <result-dir>/jina.json.gz --result <result-dir>/bge.json.gz \
+  --result <result-dir>/gemma.json.gz --out <result-dir>/paired.json
+```
+
+`compare` は`paired.json`と同じbasenameのMarkdown reportも書き出す。生成物には公開ID・順位・指標・条件だけを含め、正規化したquery/corpus本文は含めない。
+
+準備時にQASPERの同一ID・同一本文の重複だけを統合する。コーパスにない正解IDと公開candidate scene外の正解IDはRecall/NDCGの分母に残す。Jinaには公式LMEBの指示文を付け、BGE/Gemmaは公式main設定どおり指示文を付けない。レポートはsource欠落数、candidateの不足数、512-token truncation、全193 query taskの集計方法を記載し、SciFact結果やLoCoMo最終回答精度とは混ぜない。workerはオフライン推論・MPS/bf16・最大512 tokens・corpus/query quality batch 8を使い、1 taskあたり最大20問のbatch-one latency sampleを別に測る。チェックポイントはモデル・入力・コード・実行条件が一致する場合だけ再利用する。

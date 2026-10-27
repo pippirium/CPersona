@@ -140,3 +140,6 @@ python -m poc.embedding.full_lmeb compare \
 `compare` は`paired.json`と同じbasenameのMarkdown reportも書き出す。生成物には公開ID・順位・指標・条件だけを含め、正規化したquery/corpus本文は含めない。
 
 準備時にQASPERの同一ID・同一本文の重複だけを統合する。コーパスにない正解IDと公開candidate scene外の正解IDはRecall/NDCGの分母に残す。Jinaには公式LMEBの指示文を付け、BGE/Gemmaは公式main設定どおり指示文を付けない。レポートはsource欠落数、candidateの不足数、512-token truncation、全193 query taskの集計方法を記載し、SciFact結果やLoCoMo最終回答精度とは混ぜない。workerはオフライン推論・MPS/bf16・最大512 tokens・corpus/query quality batch 8を使い、1 taskあたり最大20問のbatch-one latency sampleを別に測る。チェックポイントはモデル・入力・コード・実行条件が一致する場合だけ再利用する。
+### 2026-10-28 全LMEB実行の途中経過
+
+Jinaは全103グループを完了し、BGE-M3はLongMemEval group 8のチェックポイント保存後に依頼どおり停止しました。Gemmaの全件評価と3モデルの対応比較は未実施です。数値、fingerprint、停止後の再開手順は[チェックポイント報告](../../docs/research/cp02-full-lmeb-checkpoint-2026-10-28.ja.md)を参照してください。入力本文・モデル・チェックポイント・クエリ別結果はこのGitブランチへ含めていません。

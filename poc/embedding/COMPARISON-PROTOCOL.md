@@ -1,6 +1,6 @@
 # CP-02 — Preregistered dense comparison protocol
 
-Status: Phase 1 (Japanese smoke plus SciFact) is measured and reported separately. The full-LMEB Phase 2 conditions below were fixed before its model inference. The user authorized evaluation work and PR publication in this experimental fork. Neither phase changes the MCP runtime or provider contracts.
+Status: Phase 1 (Japanese smoke plus SciFact) is measured and reported separately. Full-LMEB Phase 2 was preregistered before inference: Jina is complete, BGE-M3 is paused after LongMemEval group 8, and Gemma is unrun. The partial results are in the [2026-10-28 checkpoint report](../../docs/research/cp02-full-lmeb-checkpoint-2026-10-28.md). The user permits PR creation in this experimental fork; this handoff is branch-push only and creates no PR. Neither phase changes the MCP runtime or provider contracts.
 
 ## Fixed inputs
 
@@ -48,4 +48,4 @@ The LMEB [paper](https://arxiv.org/abs/2603.12572) and [processed dataset](https
 
 ## Delivery boundary
 
-Deliver the standalone evaluator, testable metrics, measured reports and compressed per-query evidence in an independent PR to the user's `pippirium/CPersona` fork's `master`. Bridge #19 tracks cross-repository completion. Never push or open a PR against `Cloto-dev/CPersona`. Existing published PoC/LMEB scores are reference history and are not copied into a new run as if remeasured.
+This checkpoint is shared by pushing the experimental-fork branch; it does not create a PR or complete Bridge #19. The final comparison still needs complete BGE-M3 and Gemma runs, paired analysis and report review. The user permits a later PR to `pippirium/CPersona`; no merge authorization is recorded. Never push or open a PR against `Cloto-dev/CPersona`. Existing published PoC/LMEB scores are reference history and are not copied into a new run as if remeasured.
